@@ -106,7 +106,7 @@ Note: you have probably seen this before, but as a review, lets look in depth at
 
 ### Flink SQL
 
-<pre><code class="lang-Scala" style="font-size: 0.7em; line-height: 1.2em" data-trim>
+<pre><code class="lang-Scala" style="font-size: 0.7em; line-height: 1.2em" data-trim data-noescape>
 case class Student(id: Long, name: String)
 case class Grade(id: Long, assignmentId: Long, studentId: Long, score: Int)
 ...
@@ -121,14 +121,14 @@ val grades = env.fromCollection(Seq(
   Grade(3, 1, 3, 42),
   Grade(4, 1, 3, 42)
 ))
-val tableEnv = TableEnvironment.getTableEnvironment(env)
+<span class="fragment" data-fragment-index=2>val tableEnv = TableEnvironment.getTableEnvironment(env)
 tableEnv.registerDataStream("Students", students)
-tableEnv.registerDataStream("Grades", grades)
-val fails = tableEnv.sqlQuery("""
+tableEnv.registerDataStream("Grades", grades)</span>
+<span class="fragment" data-fragment-index=3>val fails = tableEnv.sqlQuery("""
 SELECT * FROM Grades INNER JOIN Students ON Grades.studentId = Students.id
 WHERE Grades.score &lt; 60
 """)
-
+</span>
 </code></pre>
 
 Note: lowest common denominator, easy to understand and relatively flexible, but you can't express everything
@@ -137,7 +137,7 @@ Note: lowest common denominator, easy to understand and relatively flexible, but
 
 ### "High Level" Stream APIs (map, filter, window, etc)
 
-<pre><code class="lang-Scala" style="font-size: 0.7em; line-height: 1.2em" data-trim>
+<pre><code class="lang-Scala" style="font-size: 0.7em; line-height: 1.2em" data-trim data-noescape>
 case class Grade(id: Long, assignmentId: Long, studentId: Long, score: Int, attempt: Int)
 val grades = env.fromCollection(Seq(
   Grade(1, 1, 1, 85, 1),
@@ -146,15 +146,16 @@ val grades = env.fromCollection(Seq(
   Grade(4, 1, 3, 42, 2)
 ))
 
-val avgFirstsAttempt = grades
+<span class="fragment" data-fragment-index=1>val avgFirstsAttempt = grades
   .keyBy("assignmentId")
-  .filter((grade) => grade.attempt == 0)
-  // just store everything in one window
+  // keep only first attempts
+  .filter((grade) => grade.attempt == 0)</span>
+<span class="fragment" data-fragment-index=2>  // just store everything in one window
   .window(GlobalWindows.create())
   // a trigger that fires every n seconds
   .trigger(new PeriodicFiringTrigger())
   // an aggregate function to keep a running average
-  .aggregate(new AverageAggregate())
+  .aggregate(new AverageAggregate())</span>
 </code></pre>
 
 Note: They expose a lot more functionality (precise control over graph, custom state, etc), but comes at a cost and a lot is still hidden
@@ -163,7 +164,7 @@ Note: They expose a lot more functionality (precise control over graph, custom s
 
 ### "Low Level" Stream APIs (process, async, broadcast, etc)
 
-<pre><code class="lang-Scala" style="font-size: 0.5em; line-height: 1.2em" data-trim>
+<pre><code class="lang-Scala" style="font-size: 0.5em; line-height: 1.2em" data-trim data-noescape>
 case class Grade(id: Long, assignmentId: Long, studentId: Long, score: Int, attempt: Int, dueAt: Instant)
 case class NotifyFail(studentId: Long, message: String)
 val grades = env.fromCollection(Seq(
@@ -173,7 +174,7 @@ val grades = env.fromCollection(Seq(
   Grade(4, 1, 3, 42, 2, Instant.parse("2019-04-01T23:50:00Z"))
 ))
 
-val notifyFailingGrades = grades.
+<span class="fragment" data-fragment-index=1>val notifyFailingGrades = grades.
   keyBy("assignmentId", "studentId")
   process(new KeyedProcessFunction[Grade, NotifyFail] with RichFunction {
     private val WarnTime = 1000 * 60 * 60 // one hour
@@ -187,14 +188,14 @@ val notifyFailingGrades = grades.
       if (el.score &gt; Option(bestGrade.get()).map(_.score).getOrElse(-1)) {
         bestGrade.update(el)
       }
-    }
-    override def onTimer(ts Long, ctx: OnTimerContext, coll: Collector[NotifyFail]): Unit = {
+    }</span>
+<span class="fragment" data-fragment-index=2>    override def onTimer(ts Long, ctx: OnTimerContext, coll: Collector[NotifyFail]): Unit = {
       val grade = bestGrade.get()
       if (grade.score &lt; WarnScore) {
         coll.collect(NotifyFail(grade.studentId, s"You are failing assignment ${grade.assignmentId}"))
       }
     }
-  })
+  })</span>
 </code></pre>
 
 Note: We get even more control, timers, multiple outputs, keys
@@ -205,18 +206,20 @@ Note: We get even more control, timers, multiple outputs, keys
 
 ----
 
-### Is that all we get?
+### Is that all the control we get?
 
 - checkpoint barriers, watermarks, latency marker handling?
 - state snapshotting?
 - per-key state magic?
-- ... everything else?
+- ... and a whole lot more?
 
 ----
 
 ### Public vs Private APIs?
 
 <img width="600" class="plain" src="./images/stack-split.png" alt="Flink API Layers" style="vertical-align: middle"/>
+
+Note: Does flink expose just a few APIs and the rest is "private" not to be touched by us?
 
 ----
 
@@ -225,8 +228,9 @@ Note: We get even more control, timers, multiple outputs, keys
 <div style="font-size: 0.5em"><em>In my opinion</em></div>
 
 - Flink marks very few classes/interfaces as private to allow users lots of flexibility
-- However, guidelines are given via annotations and docs
+- Instead, guidelines are given via annotations and docs
 - This encourages users to experiment and understand, without ossification or constant breakage
+- As Flink evolves, more functionality is moved into higher level APIs
 
 Note: public/total files in biggest modules: flink-streaming-java (345/355), flink-core (642/649), flink-runtime (1420/1501), by comparision, spark-core (222/949) classes are public
 
@@ -245,18 +249,19 @@ Note: public/total files in biggest modules: flink-streaming-java (345/355), fli
 - The `StreamOperator` is marked as `PublicEvolving`, which means that it can
 change between versions.
 - Also, you can totally break your app and do weird things <!-- .element: class="fragment highlight-red" data-fragment-index="1" -->
+- Really, you should only use this if you know why<!-- .element: class="fragment" data-fragment-index="2" -->
+
+Note: some examples, you can break watermarks really easily, you can make checkpointing really slow, you can
 
 ----
 
 ### What it does
 
-The `DataStream` API is built on top of the `StreamOperator`, in fact, each operation is
-encapsulated inside a `StreamOperator` implementation
-
-It primarily handles:
-- interaction with runtime and internal APIs
-- watermark and latency marker handling
-- state snapshotting and managing key context
+- is the primary building block of the `DataStream` API
+- encapsulates each `DataStream` operation
+- handles interaction with runtime and internal APIs
+- processes watermarks and latency markers
+- facilitates state snapshotting and managing key contexts
 
 ----
 
@@ -265,25 +270,25 @@ It primarily handles:
 // StreamOperator.java
 @PublicEvolving
 public interface StreamOperator&lt;OUT&gt; extends CheckpointListener, KeyContext, Disposable, Serializable {
-  // lifecycle
+<span class="fragment" data-fragment-index=1>  // lifecycle
   void setup(StreamTask&lt;?, ?&gt; containingTask, StreamConfig config, Output&lt;StreamRecord&lt;OUT&gt;&gt; output);
   void open() throws Exception;
   void close() throws Exception;
-  void dispose() throws Exception;
+  void dispose() throws Exception;</span>
 
-  // state
+<span class="fragment" data-fragment-index=2>  // state
   void prepareSnapshotPreBarrier(long checkpointId) throws Exception;
   OperatorSnapshotFutures snapshotState(...) throws Exception;
   void initializeState() throws Exception;
   // from CheckpointListener interface
-  // void notifyCheckpointComplete(long checkpointId) throws Exception;
+  // void notifyCheckpointComplete(long checkpointId) throws Exception;</span>
 
-  // keys
+<span class="fragment" data-fragment-index=3>  // keys
   // from KeyContext interface
   // void setCurrentKey(Object key);
   void setKeyContextElement1(StreamRecord&lt;?&gt; record) throws Exception;
   void setKeyContextElement2(StreamRecord&lt;?&gt; record) throws Exception;
-  ...
+  ...</span>
 }
 </code></pre>
 
@@ -320,10 +325,10 @@ public interface TwoInputStreamOperator&lt;IN1, IN2, OUT&gt; extends StreamOpera
 
 ----
 
-### Some things look famaliar...
+### Some things look familiar...
 
 We still have methods for:
-- hooking into lifecycle
+- hooking into life-cycle
 - dealing with state
 - processing messages
 
@@ -343,7 +348,7 @@ We still have methods for:
 ### And some things aren't so clear...
 
 - How do we send messages downstream?
-- How do we actually deal with state?
+- How do we perform a snapshot?
 - How do we set timers?
 
 ----
@@ -354,16 +359,16 @@ We still have methods for:
 in using this API</p>
 
 
-```Scala
+<pre><code style="max-height: 550px; font-size: 0.9em; line-height: 1.2em" class="scala" data-trim data-noescape>
 class MyFirstOperator
     extends AbstractStreamOperator[String]
     with OneInputStreamOperator[String, String] {
 
-  override def processElement(element: StreamRecord[String]): Unit = {
+  <span class="fragment" data-fragment-index=1>override def processElement(element: StreamRecord[String]): Unit = {
     output.collect(element.replace(element.getValue + "!!!!"))
-  }
+  }</span>
 }
-```
+</code></pre>
 
 ----
 
@@ -407,33 +412,35 @@ dataStream.assignTimestampsAndWatermarks(new MyWatermarkExtractor)
 ### The Code
 
 <pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="java" data-trim data-noescape>
-public class TimestampsAndPunctuatedWatermarksOperator&lt;T&gt;
-    extends AbstractUdfStreamOperator&lt;T, AssignerWithPunctuatedWatermarks&lt;T&gt;&gt;
-    implements OneInputStreamOperator&lt;T, T&gt; {
+public class TimestampsAndPeriodicWatermarksOperator&lt;T&gt;
+		extends AbstractUdfStreamOperator&lt;T, AssignerWithPeriodicWatermarks&lt;T&gt;&gt;
+		implements OneInputStreamOperator&lt;T, T&gt;, ProcessingTimeCallback {
+	private transient long watermarkInterval;
+	private transient long currentWatermark;
 
-  private static final long serialVersionUID = 1L;
+	<span class="fragment" data-fragment-index=1>public TimestampsAndPeriodicWatermarksOperator(AssignerWithPeriodicWatermarks&lt;T&gt; assigner) {
+		super(assigner);
+		this.chainingStrategy = ChainingStrategy.ALWAYS;
+	}</span>
+	<span class="fragment" data-fragment-index=2>@Override
+	public void open() throws Exception {
+		super.open();
 
-  private long currentWatermark = Long.MIN_VALUE;
+		currentWatermark = Long.MIN_VALUE;
+		watermarkInterval = getExecutionConfig().getAutoWatermarkInterval();
 
-  public TimestampsAndPunctuatedWatermarksOperator(AssignerWithPunctuatedWatermarks&lt;T&gt; assigner) {
-    super(assigner);
-    this.chainingStrategy = ChainingStrategy.ALWAYS;
-  }
+		if (watermarkInterval &gt; 0) {
+			long now = getProcessingTimeService().getCurrentProcessingTime();
+			getProcessingTimeService().registerTimer(now + watermarkInterval, this);
+		}
+	}</span>
+  <span class="fragment" data-fragment-index=3>@Override
+	public void processElement(StreamRecord&lt;T&gt; element) throws Exception {
+		final long newTimestamp = userFunction.extractTimestamp(element.getValue(),
+				element.hasTimestamp() ? element.getTimestamp() : Long.MIN_VALUE);
 
-  @Override
-  public void processElement(StreamRecord&lt;T&gt; element) throws Exception {
-    final T value = element.getValue();
-    final long newTimestamp = userFunction.extractTimestamp(value,
-        element.hasTimestamp() ? element.getTimestamp() : Long.MIN_VALUE);
-
-    output.collect(element.replace(element.getValue(), newTimestamp));
-
-    final Watermark nextWatermark = userFunction.checkAndGetNextWatermark(value, newTimestamp);
-    if (nextWatermark != null && nextWatermark.getTimestamp() &gt; currentWatermark) {
-      currentWatermark = nextWatermark.getTimestamp();
-      output.emitWatermark(nextWatermark);
-    }
-  }
+		output.collect(element.replace(element.getValue(), newTimestamp));
+	}</span>
 </code></pre>
 
 ----
@@ -441,7 +448,21 @@ public class TimestampsAndPunctuatedWatermarksOperator&lt;T&gt;
 ### The Code (continued)
 
 <pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="java" data-trim data-noescape>
-  /**
+  @Override
+  public void onProcessingTime(long timestamp) throws Exception {
+    // register next timer
+    Watermark newWatermark = userFunction.getCurrentWatermark();
+    if (newWatermark != null && newWatermark.getTimestamp() &gt; currentWatermark) {
+      currentWatermark = newWatermark.getTimestamp();
+      // emit watermark
+      output.emitWatermark(newWatermark);
+    }
+
+    long now = getProcessingTimeService().getCurrentProcessingTime();
+    getProcessingTimeService().registerTimer(now + watermarkInterval, this);
+  }
+
+  <span class="fragment" data-fragment-index=1>/**
    * Override the base implementation to completely ignore watermarks propagated from
    * upstream (we rely only on the {@link AssignerWithPunctuatedWatermarks} to emit
    * watermarks from here).
@@ -454,7 +475,8 @@ public class TimestampsAndPunctuatedWatermarksOperator&lt;T&gt;
       currentWatermark = Long.MAX_VALUE;
       output.emitWatermark(mark);
     }
-  }
+  }</span>
+  ...
 }
 </code></pre>
 
@@ -462,9 +484,9 @@ public class TimestampsAndPunctuatedWatermarksOperator&lt;T&gt;
 
 ### What we learn
 
-- In `processElement` we get the `StreamRecord` which allows us modify not only the record, but it's timestamp
+- In `processElement` we get the `StreamRecord` which allows us to modify not only the record, but it's timestamp
 - In `processWatermark` we can change or completely ignore watermarks
-- We have access to some low level APIs, such as `output` and `chainingStrategy` properties
+- We have access to lots of APIs, such as timer services, `output` and `chainingStrategy` properties
 
 ----
 
@@ -472,14 +494,14 @@ public class TimestampsAndPunctuatedWatermarksOperator&lt;T&gt;
 
 <p class="small">As mentioned, all of the `DataStream` API is built on top of and encapsulated by the `StreamOperator` API</p>
 
-<pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="java" data-trim data-noescape>
+<pre class="fragment" data-fragment-index=1><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="java" data-trim data-noescape>
 public &lt;R&gt; SingleOutputStreamOperator&lt;R&gt; map(MapFunction&lt;T, R&gt; mapper) {
   TypeInformation&lt;R&gt; outType = ...;
   return transform("Map", outType, new StreamMap&lt;&gt;(clean(mapper)));
 }
 </code></pre>
 
-<img width="400" class="plain" src="./images/stream_map.png" alt="Stream Map UML" style="vertical-align: middle"/>
+<img width="400" class="plain fragment" src="./images/stream_map.png" alt="Stream Map UML" style="vertical-align: middle" data-fragment-index=2/>
 
 ---
 
@@ -492,22 +514,22 @@ public &lt;R&gt; SingleOutputStreamOperator&lt;R&gt; map(MapFunction&lt;T, R&gt;
 #### We have a job that:
 
 - has a single source which produces `FileReadRequest` messages, can send anywhere from 150 to 0.1 msgs/minute
-- a process function which reads the file and produces roughly ~100k messages per file, these new messages contain our event-time
-- downstream logic that re-keys and aggregates and sums into 1 hour windows
+- a process function which reads the file and produces roughly ~100k messages per file, these new messages contain our event-time <!-- .element: class="fragment" data-fragment-index="1" -->
+- downstream logic that re-keys and aggregates and sums into 1 hour windows <!-- .element: class="fragment" data-fragment-index="2" -->
 
 ----
 
 ### In Code
 
 <pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="scala" data-trim data-noescape>
-// our functions
-class FileRequestSource extends SourceFunction[FileReadRequest] {...}
-class FileReaderProcess extends ProcessFunction[FileReadRequest, FileMessage] {...}
-class WatermarkAssigner extends AssignerWithPeriodicWatermarks[FileMessage] {...}
 // our message types
 case class FileReadRequest(uri: String)
 case class FileMessage(sourceUri: String, timestamp: Long, id: String, value: Long)
-// our job
+<span class="fragment" data-fragment-index=1>// our functions
+class FileRequestSource extends SourceFunction[FileReadRequest] {...}
+class FileReaderProcess extends ProcessFunction[FileReadRequest, FileMessage] {...}
+class WatermarkAssigner extends AssignerWithPeriodicWatermarks[FileMessage] {...}</span>
+<span class="fragment" data-fragment-index=2>// our job
 class FileReaderDemo {
   def main(args: Array[String]): Unit = {
     val env = StreamExecutionEnvironment.getExecutionEnvironment
@@ -516,16 +538,16 @@ class FileReaderDemo {
     val messageStream = fileStream
       .process(new FileReaderProcess)
       .setParallelism(25)
-      .assignTimestampsAndWatermarks(new WatermarkAssigner)
+      .assignTimestampsAndWatermarks(new WatermarkAssigner)</span>
 
-    messageStream
+    <span class="fragment" data-fragment-index=3>messageStream
       .keyBy("id")
       .window(TumblingEventTimeWindows.of(Time.hours(1)))
       .sum("value")
       .setParallelism(50)
       .addSink(...)
   }
-}
+}</span>
 </code></pre>
 
 ----
@@ -546,13 +568,10 @@ Analysis shows the watermark isn't advancing
 
 ### Root Cause
 
-At low load, we get roughly 6 msgs/hour
-
-In an hour, only ~25% of readers will have a message to process, the rest will be idle
-
-At this rate, it will take ~4 hours for all readers to get a message to process
-
-Since we assign watermarks after our reader, the initial source doesn't generate watermarks
+- At low load, we get roughly 6 msgs/hour
+- In an hour, only ~25% of readers will have a message to process, the rest will be idle <!-- .element: class="fragment" data-fragment-index="1" -->
+- At this rate, it will take ~4 hours for all readers to get a message to process <!-- .element: class="fragment" data-fragment-index="2" -->
+- Since we assign watermarks after our reader, earlier watermarks are discarded <!-- .element: class="fragment" data-fragment-index="3" -->
 
 ----
 ### Dealing with idle streams
@@ -585,18 +604,18 @@ In this case, the real "source" of most of our data is **not** the SourceFunctio
 
 With the operator API, we can work around this API limitation
 
-Note: there are other options to fixing this, such as a differet watermark generation scheme,
+Note: there are other options to fixing this, such as a different watermark generation scheme,
 but that still is a workaround when the problem is that the real bulk of our data isn't produced by the source
 
 ----
 
-### Our new operator
+### Our new abstraction
 
 <pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="scala" data-trim data-noescape>
 abstract class MessageableSource[IN, OUT](idleTimeout: Long)
     extends AbstractStreamOperator[OUT]
     with OneInputStreamOperator[IN, OUT] {
-  private var sourceCtx: SourceContext[OUT] = _
+  <span class="fragment" data-fragment-index=1>private var sourceCtx: SourceContext[OUT] = _
   protected def sourceContext: SourceContext[OUT] = {
     if (sourceCtx == null) {
       sourceCtx = StreamSourceContexts.getSourceContext(
@@ -610,11 +629,11 @@ abstract class MessageableSource[IN, OUT](idleTimeout: Long)
       )
     }
     sourceCtx
-  }
-  override def processElement(element: StreamRecord[IN]): Unit =
-    processElement(element.getValue, sourceContext)
+  }</span>
 
-  def processElement(el: IN, sourceCtx: SourceContext[OUT]): Unit
+  <span class="fragment" data-fragment-index=2>def processElement(el: IN, sourceCtx: SourceContext[OUT]): Unit</span>
+  <span class="fragment" data-fragment-index=3>override def processElement(element: StreamRecord[IN]): Unit =
+    processElement(element.getValue, sourceContext)</span>
 }
 </code></pre>
 
@@ -624,10 +643,10 @@ abstract class MessageableSource[IN, OUT](idleTimeout: Long)
 ### Used in our new job
 
 <pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="scala" data-trim data-noescape>
-// our functions
-class FileRequestSource extends SourceFunction[FileReadRequest] {...}
+<span class="fragment semi-fade-out" data-fragment-index=1>// our functions
+class FileRequestSource extends SourceFunction[FileReadRequest] {...}</span>
 class FileReaderSource extends MessageableSource[FileReadRequest, FileMessage](idleTimeout) {...}
-class WatermarkAssigner extends AssignerWithPeriodicWatermarks[FileMessage] {...}
+<span class="fragment semi-fade-out" data-fragment-index=1>class WatermarkAssigner extends AssignerWithPeriodicWatermarks[FileMessage] {...}
 // our message types
 case class FileReadRequest(uri: String)
 case class FileMessage(sourceUri: String, timestamp: Long, id: String, value: Long)
@@ -637,9 +656,9 @@ class FileReaderDemo {
     val env = StreamExecutionEnvironment.getExecutionEnvironment
     env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
     val fileStream    = env.addSource(new FileRequestSource)
-    val messageStream = fileStream
-      <span class="fragment highlight-red">.transform("fileReader", new FileReaderSource)</span>
-      .setParallelism(25)
+    val messageStream = fileStream</span>
+      .transform("fileReader", new FileReaderSource)
+      <span class="fragment semi-fade-out" data-fragment-index=1>.setParallelism(25)
       .assignTimestampsAndWatermarks(new WatermarkAssigner)
 
     messageStream
@@ -649,16 +668,17 @@ class FileReaderDemo {
       .setParallelism(50)
       .addSink(...)
   }
-}
+}</span>
 </code></pre>
+
 
 ---
 
-## What we needed to fix
+## What Instructure needed to fix
 
 ----
 
-<img width="800" class="plain" src="./images/old_event_arch.png" alt="Lambda Analytics" style="vertical-align: middle"/>
+<img width="1200" class="plain" src="./images/old_event_arch.png" alt="Lambda Analytics" style="vertical-align: middle"/>
 
 ----
 
@@ -679,8 +699,8 @@ Arc Insights shows data on how a video is being watched (or not). It is powered 
 
 - Batch and speed layer can be quite different, which requires broad knowledge for a team
 
-Note: We aren't big enough to have seperate teams do all data transformations, so it is team's responsibility with consulting
-Most of our teams consistent of people build REST apis and often not in JVM, so one new piece of technology can be a big ask
+Note: We aren't big enough to have separate teams do all data transformations, so it is team's responsibility with consulting
+Most of our teams consistent of people build REST APIs and often not in JVM, so one new piece of technology can be a big ask
 
 ----
 
@@ -720,7 +740,7 @@ continued effort into this solution
 
 ### Reuse Stream Logic with two sources
 
-- Another common pattern is two re-use logic in different jobs with different sources
+- Another common pattern is to re-use logic in different jobs with different sources
 - This requires external automation and/or external state to co-ordinate between the two different jobs
 
 ----
@@ -733,25 +753,37 @@ continued effort into this solution
 
 ---
 
-## Flink makes that possible
+## The flexibility of Flink
 
 ----
 
-<img width="800" class="plain" src="./images/new_event_arch.png" alt="Kappa Analytics" style="vertical-align: middle"/>
+<img width="1200" class="plain" src="./images/new_event_arch.png" alt="Kappa Analytics" style="vertical-align: middle"/>
 
 ----
 
 ### A better solution for archiving a stream
 
-- By controlling our writes from Kinesis Streams to S3, we could read more granularly for backfill
-- Additionally, by writing offset metadata to AWS Glue, we can seemlessly transition to Kinesis
+- By controlling our writes from Kinesis Streams to S3, we could read more granularly for back-fill
+- Additionally, by writing offset metadata to AWS Glue, we can seamlessly transition to Kinesis
+
+----
+
+### Not the only challenge
+
+- The `FlinkKinesisConsumer` is complex and not obviously re-usable as it is built on a `ParallelSourceFunction`
+- In order to scale reads during back-fill, we need read multiple files at once and then re-order the results <!-- .element: class="fragment" data-fragment-index="1" -->
+- We still can't do bi-directional communication, which makes synchronization a challenge <!-- .element: class="fragment" data-fragment-index="2" -->
+- We still have to worry about properly handling idle streams and watermarks to make downstream code work as expected <!-- .element: class="fragment" data-fragment-index="3" -->
 
 ----
 
 ### A more flexible "source"
 
-- With the `StreamOperator` API and our own `MessageableSource` abstraction, we could build more flexible sources
-- These sources allowed us to backfill data from S3, then transition to reading from Kinesis all with the same job graph
+<ul>
+<li>With the `StreamOperator` API and our own `MessageableSource` abstraction, we could build an adapter for the <code>KinesisDataFetcher</code>, the <code>KinesisReader</code></li>
+<li class="fragment" data-fragment-index=1>We also use the `MessageableSource` to build a "source" which recieves messages of files to read, the <code>S3FileReader</code></li>
+<li class="fragment" data-fragment-index=2>These sources allowed us to back-fill data from S3, then transition to reading from Kinesis all with the same job graph, which we encapsulate in a single class, the `S3KinesisReader`</li>
+</ul>
 
 ----
 
@@ -761,6 +793,45 @@ continued effort into this solution
 
 <img width="1000" class="plain" src="./images/s3_kinesis_sequence.png" alt="S3Kinesis Reader Sequence" style="vertical-align: middle"/>
 
+----
+
+### Removing Unneeded Stuff
+
+- Once we are done back-filling, we want to eventually scale down batch reading portions
+- We can do this either by just scaling down the `S3FileReaders` or condtionally building a different graph
+
+----
+
+### Our results so far
+
+- Much less business logic to maintain, first use case reduced from ~500 loc to ~100 loc
+- Performance has been good in back-fill
+- Figuring out glue partitioning is a bit of a challenge to not have tiny partitions
+- Still some bugs to iron out
+
+----
+
+### Upcoming Flink Changes
+
+FLIP-27 - Refactor Source Interface
+
+Aims to seperate out sources into two components `SplitEnumerator` and `SplitReader`, which should
+allow for more flexible sources
+
+It also formalizes `Unbounded` and `Bounded` streams, which should make unified batch and streaming easier
+
+----
+
+### Should you do this?
+
+<h3 class="fragment">¯\\_(ツ)_/¯ </h3>
+----
+
+### Why you might want to hold off
+
+- Flink will get better support for unified batch/streaming
+- This is pretty experimental, but working for us
+
 ---
 
 ## In Conclusion
@@ -768,7 +839,7 @@ continued effort into this solution
 ----
 
 - The `StreamOperator` API is how Flink achieves a lot of the features we know and love
-- Understanding it can make it easier to reason about your flink applications
+- Understanding it can make it easier to reason about your Flink applications
 - You can use it to do some really powerful things and build your own abstractions (but be careful)
 
 ----
