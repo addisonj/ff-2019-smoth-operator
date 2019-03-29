@@ -18,7 +18,7 @@
 
 <img width="600" class="plain" src="./images/inst-logo.svg" alt="Instructure" style="vertical-align: middle"/>
 
-### From the first day of school to the last day of work.
+### From the first day of school to the last day of work
 
 ----
 
@@ -126,7 +126,7 @@ tableEnv.registerDataStream("Students", students)
 tableEnv.registerDataStream("Grades", grades)
 val fails = tableEnv.sqlQuery("""
 SELECT * FROM Grades INNER JOIN Students ON Grades.studentId = Students.id
-WHERE Grades.score < 60
+WHERE Grades.score &lt; 60
 """)
 
 </code></pre>
@@ -184,13 +184,13 @@ val notifyFailingGrades = grades.
         val warnAt = el.dueAt.toEpochMilli() - WarnTime
         ctx.timerService.registerProcessingTimeTimer(warnAt)
       }
-      if (el.score > Option(bestGrade.get()).map(_.score).getOrElse(-1)) {
+      if (el.score &gt; Option(bestGrade.get()).map(_.score).getOrElse(-1)) {
         bestGrade.update(el)
       }
     }
     override def onTimer(ts Long, ctx: OnTimerContext, coll: Collector[NotifyFail]): Unit = {
       val grade = bestGrade.get()
-      if (grade.score < WarnScore) {
+      if (grade.score &lt; WarnScore) {
         coll.collect(NotifyFail(grade.studentId, s"You are failing assignment ${grade.assignmentId}"))
       }
     }
@@ -248,13 +248,25 @@ change between versions.
 
 ----
 
+### What it does
+
+The `DataStream` API is built on top of the `StreamOperator`, in fact, each operation is
+encapsulated inside a `StreamOperator` implementation
+
+It primarily handles:
+- interaction with runtime and internal APIs
+- watermark and latency marker handling
+- state snapshotting and managing key context
+
+----
+
 ### What it looks like
 <pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="java" data-trim data-noescape>
 // StreamOperator.java
 @PublicEvolving
-public interface StreamOperator<OUT> extends CheckpointListener, KeyContext, Disposable, Serializable {
+public interface StreamOperator&lt;OUT&gt; extends CheckpointListener, KeyContext, Disposable, Serializable {
   // lifecycle
-  void setup(StreamTask<?, ?> containingTask, StreamConfig config, Output<StreamRecord<OUT>> output);
+  void setup(StreamTask&lt;?, ?&gt; containingTask, StreamConfig config, Output&lt;StreamRecord&lt;OUT&gt;&gt; output);
   void open() throws Exception;
   void close() throws Exception;
   void dispose() throws Exception;
@@ -269,8 +281,8 @@ public interface StreamOperator<OUT> extends CheckpointListener, KeyContext, Dis
   // keys
   // from KeyContext interface
   // void setCurrentKey(Object key);
-  void setKeyContextElement1(StreamRecord<?> record) throws Exception;
-  void setKeyContextElement2(StreamRecord<?> record) throws Exception;
+  void setKeyContextElement1(StreamRecord&lt;?&gt; record) throws Exception;
+  void setKeyContextElement2(StreamRecord&lt;?&gt; record) throws Exception;
   ...
 }
 </code></pre>
@@ -282,9 +294,9 @@ public interface StreamOperator<OUT> extends CheckpointListener, KeyContext, Dis
 <pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="java" data-trim data-noescape>
 // OneInputStreamOperator.java
 @PublicEvolving
-public interface OneInputStreamOperator<IN, OUT> extends StreamOperator<OUT> {
+public interface OneInputStreamOperator&lt;IN, OUT&gt; extends StreamOperator&lt;OUT&gt; {
   // process messages
-  void processElement(StreamRecord<IN> element) throws Exception;
+  void processElement(StreamRecord&lt;IN&gt; element) throws Exception;
   void processWatermark(Watermark mark) throws Exception;
   void processLatencyMarker(LatencyMarker latencyMarker) throws Exception;
 }
@@ -295,20 +307,20 @@ or
 <pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="java" data-trim data-noescape>
 // TwoInputStreamOperator.java
 @PublicEvolving
-public interface TwoInputStreamOperator<IN1, IN2, OUT> extends StreamOperator<OUT> {
+public interface TwoInputStreamOperator&lt;IN1, IN2, OUT&gt; extends StreamOperator&lt;OUT&gt; {
   // process messages x2
-	void processElement1(StreamRecord<IN1> element) throws Exception;
-	void processElement2(StreamRecord<IN2> element) throws Exception;
-	void processWatermark1(Watermark mark) throws Exception;
-	void processWatermark2(Watermark mark) throws Exception;
-	void processLatencyMarker1(LatencyMarker latencyMarker) throws Exception;
-	void processLatencyMarker2(LatencyMarker latencyMarker) throws Exception;
+  void processElement1(StreamRecord&lt;IN1&gt; element) throws Exception;
+  void processElement2(StreamRecord&lt;IN2&gt; element) throws Exception;
+  void processWatermark1(Watermark mark) throws Exception;
+  void processWatermark2(Watermark mark) throws Exception;
+  void processLatencyMarker1(LatencyMarker latencyMarker) throws Exception;
+  void processLatencyMarker2(LatencyMarker latencyMarker) throws Exception;
 }
 </code></pre>
 
 ----
 
-### What's the same?
+### Some things look famaliar...
 
 We still have methods for:
 - hooking into lifecycle
@@ -317,9 +329,7 @@ We still have methods for:
 
 ----
 
-### What's new?
-
-#### However, we see a whole lot more
+### However, we see a whole lot more
 
 <ul style="font-size: 0.7em">
   <li><code class="small">void setup(StreamTask<?, ?>, StreamConfig, Output<StreamRecord<OUT>>)</code></li>
@@ -330,10 +340,10 @@ We still have methods for:
 
 ----
 
-### What's missing?
+### And some things aren't so clear...
 
 - How do we send messages downstream?
-- How do we actually deal with state
+- How do we actually deal with state?
 - How do we set timers?
 
 ----
@@ -360,21 +370,116 @@ class MyFirstOperator
 <img width="400" class="plain" src="./images/confused.gif" alt="Confused" style="vertical-align: middle"/>
 
 ### ... That's it?
-#### What does this _actually_ do for us?
+#### Why would I want to use this?
 
 ---
 
-## An Example From Flink
+## How Flink uses it
 
 ----
 
-### `TimestampsAndPeriodicWatermarksOperator`
-####
+#### `TimestampsAndPeriodicWatermarksOperator`
+
+----
+
+### What does it do?
+
+<p class="small">When you use any watermark extractor, it gets wrapped in a <code>TimestampsAndPeriodicWatermarksOperator</code></p>
+
+<pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="java" data-trim data-noescape>
+class MyWatermarkExtractor extends AssignerWithPeriodicWatermarks[MyEvent] {
+  private var maxTimestamp: Long = 0L
+  override def extractTimestamp(element: MyEvent, previousElementTimestamp: Long): Long = {
+    if (element.timestamp &gt; maxTimestamp) {
+      maxTimestamp = element.timestamp
+    }
+    element.timestamp
+  }
+  override def getCurrentWatermark(): Watermark = new Watermark(maxTimestamp - 1)
+}
+
+dataStream.assignTimestampsAndWatermarks(new MyWatermarkExtractor)
+</code></pre>
 
 
 ----
 
+### The Code
 
+<pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="java" data-trim data-noescape>
+public class TimestampsAndPunctuatedWatermarksOperator&lt;T&gt;
+    extends AbstractUdfStreamOperator&lt;T, AssignerWithPunctuatedWatermarks&lt;T&gt;&gt;
+    implements OneInputStreamOperator&lt;T, T&gt; {
+
+  private static final long serialVersionUID = 1L;
+
+  private long currentWatermark = Long.MIN_VALUE;
+
+  public TimestampsAndPunctuatedWatermarksOperator(AssignerWithPunctuatedWatermarks&lt;T&gt; assigner) {
+    super(assigner);
+    this.chainingStrategy = ChainingStrategy.ALWAYS;
+  }
+
+  @Override
+  public void processElement(StreamRecord&lt;T&gt; element) throws Exception {
+    final T value = element.getValue();
+    final long newTimestamp = userFunction.extractTimestamp(value,
+        element.hasTimestamp() ? element.getTimestamp() : Long.MIN_VALUE);
+
+    output.collect(element.replace(element.getValue(), newTimestamp));
+
+    final Watermark nextWatermark = userFunction.checkAndGetNextWatermark(value, newTimestamp);
+    if (nextWatermark != null && nextWatermark.getTimestamp() &gt; currentWatermark) {
+      currentWatermark = nextWatermark.getTimestamp();
+      output.emitWatermark(nextWatermark);
+    }
+  }
+</code></pre>
+
+----
+
+### The Code (continued)
+
+<pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="java" data-trim data-noescape>
+  /**
+   * Override the base implementation to completely ignore watermarks propagated from
+   * upstream (we rely only on the {@link AssignerWithPunctuatedWatermarks} to emit
+   * watermarks from here).
+   */
+  @Override
+  public void processWatermark(Watermark mark) throws Exception {
+    // if we receive a Long.MAX_VALUE watermark we forward it since it is used
+    // to signal the end of input and to not block watermark progress downstream
+    if (mark.getTimestamp() == Long.MAX_VALUE && currentWatermark != Long.MAX_VALUE) {
+      currentWatermark = Long.MAX_VALUE;
+      output.emitWatermark(mark);
+    }
+  }
+}
+</code></pre>
+
+----
+
+### What we learn
+
+- In `processElement` we get the `StreamRecord` which allows us modify not only the record, but it's timestamp
+- In `processWatermark` we can change or completely ignore watermarks
+- We have access to some low level APIs, such as `output` and `chainingStrategy` properties
+
+----
+
+### The `StreamOperator` pattern
+
+<p class="small">As mentioned, all of the `DataStream` API is built on top of and encapsulated by the `StreamOperator` API</p>
+
+<pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="java" data-trim data-noescape>
+public &lt;R&gt; SingleOutputStreamOperator&lt;R&gt; map(MapFunction&lt;T, R&gt; mapper) {
+  TypeInformation&lt;R&gt; outType = ...;
+  return transform("Map", outType, new StreamMap&lt;&gt;(clean(mapper)));
+}
+</code></pre>
+
+<img width="400" class="plain" src="./images/stream_map.png" alt="Stream Map UML" style="vertical-align: middle"/>
 
 ---
 
@@ -382,60 +487,279 @@ class MyFirstOperator
 
 ----
 
-###
+### Handling a stream of files
+
+#### We have a job that:
+
+- has a single source which produces `FileReadRequest` messages, can send anywhere from 150 to 0.1 msgs/minute
+- a process function which reads the file and produces roughly ~100k messages per file, these new messages contain our event-time
+- downstream logic that re-keys and aggregates and sums into 1 hour windows
+
+----
+
+### In Code
+
+<pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="scala" data-trim data-noescape>
+// our functions
+class FileRequestSource extends SourceFunction[FileReadRequest] {...}
+class FileReaderProcess extends ProcessFunction[FileReadRequest, FileMessage] {...}
+class WatermarkAssigner extends AssignerWithPeriodicWatermarks[FileMessage] {...}
+// our message types
+case class FileReadRequest(uri: String)
+case class FileMessage(sourceUri: String, timestamp: Long, id: String, value: Long)
+// our job
+class FileReaderDemo {
+  def main(args: Array[String]): Unit = {
+    val env = StreamExecutionEnvironment.getExecutionEnvironment
+    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
+    val fileStream    = env.addSource(new FileRequestSource)
+    val messageStream = fileStream
+      .process(new FileReaderProcess)
+      .setParallelism(25)
+      .assignTimestampsAndWatermarks(new WatermarkAssigner)
+
+    messageStream
+      .keyBy("id")
+      .window(TumblingEventTimeWindows.of(Time.hours(1)))
+      .sum("value")
+      .setParallelism(50)
+      .addSink(...)
+  }
+}
+</code></pre>
+
+----
+
+### Job Graph
+
+<img width="800" class="plain" src="./images/file-graph-1.png" alt="File Graph" style="vertical-align: middle"/>
+
+----
+
+### Problems Arise
+
+At low load, we start seeing no windows closing until load picks back up
+
+Analysis shows the watermark isn't advancing
+
+----
+
+### Root Cause
+
+At low load, we get roughly 6 msgs/hour
+
+In an hour, only ~25% of readers will have a message to process, the rest will be idle
+
+At this rate, it will take ~4 hours for all readers to get a message to process
+
+Since we assign watermarks after our reader, the initial source doesn't generate watermarks
+
+----
+### Dealing with idle streams
+
+<img width="400" class="plain" src="./images/parallel_streams_watermarks.svg" alt="Watermarks" style="vertical-align: middle"/>
+
+<p class="small">The watermark for an operator is the minimum of all the input watermarks, when we have a single "source" that doesn't output any records, the watermark doesn't advance</p>
+
+<p class="small">Without an advancing watermark, we can't close windows, and we stop getting results</p>
+
+----
+
+### How to fix it!
+
+> Sources can be marked as idle using SourceFunction.SourceContext #markAsTemporarilyIdle
+
+*From https://ci.apache.org/projects/flink/flink-docs-stable/dev/event_time.html#idling-sources*
+
+----
+
+<img width="600" class="plain" src="./images/sad.gif" alt="Sad" style="vertical-align: middle"/>
+
+#### Except... our source isn't what is idle...
+
+----
+
+### What is a source really?
+
+In this case, the real "source" of most of our data is **not** the SourceFunction
+
+With the operator API, we can work around this API limitation
+
+Note: there are other options to fixing this, such as a differet watermark generation scheme,
+but that still is a workaround when the problem is that the real bulk of our data isn't produced by the source
+
+----
+
+### Our new operator
+
+<pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="scala" data-trim data-noescape>
+abstract class MessageableSource[IN, OUT](idleTimeout: Long)
+    extends AbstractStreamOperator[OUT]
+    with OneInputStreamOperator[IN, OUT] {
+  private var sourceCtx: SourceContext[OUT] = _
+  protected def sourceContext: SourceContext[OUT] = {
+    if (sourceCtx == null) {
+      sourceCtx = StreamSourceContexts.getSourceContext(
+        getOperatorConfig.getTimeCharacteristic,
+        getContainingTask.getProcessingTimeService,
+        getContainingTask.getCheckpointLock,
+        getContainingTask.getStreamStatusMaintainer,
+        output,
+        getRuntimeContext.getExecutionConfig.getAutoWatermarkInterval,
+        idleTimeout
+      )
+    }
+    sourceCtx
+  }
+  override def processElement(element: StreamRecord[IN]): Unit =
+    processElement(element.getValue, sourceContext)
+
+  def processElement(el: IN, sourceCtx: SourceContext[OUT]): Unit
+}
+</code></pre>
+
+
+----
+
+### Used in our new job
+
+<pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="scala" data-trim data-noescape>
+// our functions
+class FileRequestSource extends SourceFunction[FileReadRequest] {...}
+class FileReaderSource extends MessageableSource[FileReadRequest, FileMessage](idleTimeout) {...}
+class WatermarkAssigner extends AssignerWithPeriodicWatermarks[FileMessage] {...}
+// our message types
+case class FileReadRequest(uri: String)
+case class FileMessage(sourceUri: String, timestamp: Long, id: String, value: Long)
+// our job
+class FileReaderDemo {
+  def main(args: Array[String]): Unit = {
+    val env = StreamExecutionEnvironment.getExecutionEnvironment
+    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
+    val fileStream    = env.addSource(new FileRequestSource)
+    val messageStream = fileStream
+      <span class="fragment highlight-red">.transform("fileReader", new FileReaderSource)</span>
+      .setParallelism(25)
+      .assignTimestampsAndWatermarks(new WatermarkAssigner)
+
+    messageStream
+      .keyBy("id")
+      .window(TumblingEventTimeWindows.of(Time.hours(1)))
+      .sum("value")
+      .setParallelism(50)
+      .addSink(...)
+  }
+}
+</code></pre>
 
 ---
 
-## A Real Use Case
+## What we needed to fix
 
 ----
 
-### The Challenge of Lambda Architectures
-
-Two systems are hard to
+<img width="800" class="plain" src="./images/old_event_arch.png" alt="Lambda Analytics" style="vertical-align: middle"/>
 
 ----
 
-#### Maintain
 
-It is a struggle to get teams to maintain one system, let alone 2
+<img width="800" class="plain" src="./images/arc_demo.png" alt="Arc Example" style="vertical-align: middle"/>
+Note: Arc is a video platform tailored for education and corporate that gives control and insights into what people are watching
+Arc Insights shows data on how a video is being watched (or not). It is powered by a lambda architecture of spark batch and lambda/dynamo
 
-Batch and speed layer can be quite different, which requires broad knowledge for a team
+----
+
+### Lambda architectures are difficult to:
+
+----
+
+### Maintain
+
+- It is a struggle to get teams to maintain one system, let alone two
+
+- Batch and speed layer can be quite different, which requires broad knowledge for a team
 
 Note: We aren't big enough to have seperate teams do all data transformations, so it is team's responsibility with consulting
 Most of our teams consistent of people build REST apis and often not in JVM, so one new piece of technology can be a big ask
 
 ----
 
-#### Coordinate
+### Coordinate
 
-For certain problems (like those that don't have a natural time grain), coordinating between the
-two systems can be difficult and error prone
-
-TODO: talk about marker framework just a bit
+- For certain problems, coordinating between the two systems can be difficult and error prone
 
 ----
 
-#### Debug
+### Debug
 
-When something goes wrong, knowing where the data came from (or didn't come from) is a challenge
-
-An outage in either system can really confuse users
-
-----
-
-#### Justify
-
-With all the above challenges and with new stream processors, we found it harder and harder to justify
-building lambda architectures
+- When something goes wrong, knowing where the data came from (or didn't come from) is a challenge
+- An outage in either system can really confuse users
 
 ----
 
-### The Kappa Silver Bullet?
+### Justify
 
-<p class="small">Kappa is a step in the right direction, but it still has challenges:</p>
+- With all the above challenges and with new stream processors, we found it hard to justify
+continued effort into this solution
 
-- Retention -
+----
+
+### Are Kappa Architecture a Silver Bullet?
+
+#### A step in the right direction, but a lot of ways to go about it
+
+----
+
+### Stream Retention
+
+- Still a very unsolved problem
+- Many message transport layers don't support infinite retention at all (Kinesis) or it can be expensive (Kafka)
+- Even with more advanced solutions (pulsar or pravega tiered storage), scaling reads is non-trivial
+
+----
+
+### Reuse Stream Logic with two sources
+
+- Another common pattern is two re-use logic in different jobs with different sources
+- This requires external automation and/or external state to co-ordinate between the two different jobs
+
+----
+
+### Our Approach To Kappa
+
+- We weren't ready to move to a new streaming transport and no trim Kafka seemed scary
+- We also wanted to avoid external automation or state if possible
+- Can we do this all inside Flink?
+
+---
+
+## Flink makes that possible
+
+----
+
+<img width="800" class="plain" src="./images/new_event_arch.png" alt="Kappa Analytics" style="vertical-align: middle"/>
+
+----
+
+### A better solution for archiving a stream
+
+- By controlling our writes from Kinesis Streams to S3, we could read more granularly for backfill
+- Additionally, by writing offset metadata to AWS Glue, we can seemlessly transition to Kinesis
+
+----
+
+### A more flexible "source"
+
+- With the `StreamOperator` API and our own `MessageableSource` abstraction, we could build more flexible sources
+- These sources allowed us to backfill data from S3, then transition to reading from Kinesis all with the same job graph
+
+----
+
+<img width="1000" class="plain" src="./images/s3_kinesis_graph.png" alt="S3Kinesis Reader Graph" style="vertical-align: middle"/>
+
+----
+
+<img width="1000" class="plain" src="./images/s3_kinesis_sequence.png" alt="S3Kinesis Reader Sequence" style="vertical-align: middle"/>
 
 ---
 
@@ -445,7 +769,7 @@ building lambda architectures
 
 - The `StreamOperator` API is how Flink achieves a lot of the features we know and love
 - Understanding it can make it easier to reason about your flink applications
-- You can use it to do some really powerful things and build your own abstractions, but be careful!
+- You can use it to do some really powerful things and build your own abstractions (but be careful)
 
 ----
 
