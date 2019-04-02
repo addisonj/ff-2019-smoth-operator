@@ -75,3 +75,11 @@ p.small {
 code.small {
   font-size: 0.7em;
 }
+
+// custom highlights
+.reveal .slides section .fragment.hl-comment {
+  opacity: 1;
+  visibility: inherit; }
+
+.reveal .slides section .fragment.hl-comment.visible {
+  color: #ff2c2d; }

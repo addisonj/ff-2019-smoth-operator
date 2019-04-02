@@ -8,41 +8,12 @@
 
 ----
 
+### Addison Higham
 <img width="200" class="plain" src="./images/me.jpg" alt="Addison Higham" style="vertical-align: middle"/>
 
 - Cloud/Data Guy at Instructure
 - github.com/addisonj
 - twitter/addisonjh
-
-----
-
-<img width="600" class="plain" src="./images/inst-logo.svg" alt="Instructure" style="vertical-align: middle"/>
-
-### From the first day of school to the last day of work
-
-----
-
-<div style="display: flex; justify-context: space-evenly;">
-  <div>
-    <img width="200" class="plain" src="./images/canvas-logo.svg" alt="Canvas" style="vertical-align: middle"/>
-    <p style="vertical-align: middle">Learning Management System</p>
-  </div>
-  <div>
-    <img width="200" class="plain" src="./images/bridge-logo.svg" alt="Bridge" style="vertical-align: middle"/>
-    <p style="vertical-align: middle">Employment Development</p>
-  </div>
-</div>
-
-----
-
-### How We Use Flink
-#### Get more data to customers faster
-
-- Fast and correct ETLs
-- Large scale aggregations for analytics
-- Still new effort, but growing
-
-<div style="font-size: 0.5em"><em>We are hiring, talk to me if that sounds interesting</em></div>
 
 ---
 
@@ -54,7 +25,7 @@
 - Community <!-- .element: class="fragment strike" data-fragment-index="2" -->
 - Best Apache Animal Logo <!-- .element: class="fragment fade-in" data-fragment-index="3" -->
 
-Note: Started with flink over 2 years ago
+Note: Started with flink over 3 years ago
 
 ----
 
@@ -82,6 +53,55 @@ Note: Started with flink over 2 years ago
 
 ---
 
+<img width="600" class="plain" src="./images/inst-logo.svg" alt="Instructure" style="vertical-align: middle"/>
+
+### From the first day of school to the last day of work
+
+----
+
+<div style="display: flex; justify-context: space-evenly;">
+  <div>
+    <img width="200" class="plain" src="./images/canvas-logo.svg" alt="Canvas" style="vertical-align: middle"/>
+    <p style="vertical-align: middle">Learning Management System</p>
+  </div>
+  <div>
+    <img width="200" class="plain" src="./images/bridge-logo.svg" alt="Bridge" style="vertical-align: middle"/>
+    <p style="vertical-align: middle">Employment Development</p>
+  </div>
+</div>
+
+----
+
+### How We Use Flink
+
+----
+
+### Get more data to customers faster
+
+- Fast and correct ETLs
+- Replace/Augment batch systems
+- Still new effort, but growing
+
+----
+
+### Replacement For Lambda Archictures
+#### We found Lambda to be:
+
+- Difficult to maintain (two stacks, duplicated logic) <!-- .element: class="fragment" data-fragment-index="1" -->
+- Hard to coordinate (external state, source of truth) <!-- .element: class="fragment" data-fragment-index="2" -->
+- Hard to debug (erroneous or missing data, bad UX) <!-- .element: class="fragment" data-fragment-index="3" -->
+- Not worth doing anymore (with better stream processors, why use lambda?) <!-- .element: class="fragment" data-fragment-index="4" -->
+
+----
+
+### Our experience so far
+
+Flink is a feature-rich and fast stream processor with flexibility to meet a ton of different demands
+
+The `StreamOperator` API is one aspect that leads to Flink's flexibility
+
+---
+
 ## What we will cover today
 
 ----
@@ -91,6 +111,7 @@ Note: Started with flink over 2 years ago
 - What it is and how it fits in with the other Flink APIs
 - What it enables and how Flink uses it
 - Some examples of what advanced functionality you can do with it
+- How Instructure uses it to move to Kappa-like Architectures
 
 ---
 
@@ -260,7 +281,7 @@ Note: some examples, you can break watermarks really easily, you can make checkp
 - is the primary building block of the `DataStream` API
 - encapsulates each `DataStream` operation
 - handles interaction with runtime and internal APIs
-- processes watermarks and latency markers
+- handle internal messaging (`StreamRecord`, `Watermark`, etc)
 - facilitates state snapshotting and managing key contexts
 
 ----
@@ -418,29 +439,29 @@ public class TimestampsAndPeriodicWatermarksOperator&lt;T&gt;
 	private transient long watermarkInterval;
 	private transient long currentWatermark;
 
-	<span class="fragment" data-fragment-index=1>public TimestampsAndPeriodicWatermarksOperator(AssignerWithPeriodicWatermarks&lt;T&gt; assigner) {
+	public TimestampsAndPeriodicWatermarksOperator(AssignerWithPeriodicWatermarks&lt;T&gt; assigner) {
 		super(assigner);
-		this.chainingStrategy = ChainingStrategy.ALWAYS;
-	}</span>
-	<span class="fragment" data-fragment-index=2>@Override
+		<span class="fragment highlight-red" data-fragment-index=1>this.chainingStrategy = ChainingStrategy.ALWAYS;</span>
+	}
+	@Override
 	public void open() throws Exception {
 		super.open();
 
 		currentWatermark = Long.MIN_VALUE;
-		watermarkInterval = getExecutionConfig().getAutoWatermarkInterval();
+		<span class="fragment highlight-red" data-fragment-index=2>watermarkInterval = getExecutionConfig().getAutoWatermarkInterval();</span>
 
 		if (watermarkInterval &gt; 0) {
-			long now = getProcessingTimeService().getCurrentProcessingTime();
-			getProcessingTimeService().registerTimer(now + watermarkInterval, this);
+			<span class="fragment highlight-red" data-fragment-index=3>long now = getProcessingTimeService().getCurrentProcessingTime();
+			getProcessingTimeService().registerTimer(now + watermarkInterval, this);</span>
 		}
 	}</span>
-  <span class="fragment" data-fragment-index=3>@Override
+  @Override
 	public void processElement(StreamRecord&lt;T&gt; element) throws Exception {
 		final long newTimestamp = userFunction.extractTimestamp(element.getValue(),
 				element.hasTimestamp() ? element.getTimestamp() : Long.MIN_VALUE);
 
-		output.collect(element.replace(element.getValue(), newTimestamp));
-	}</span>
+		<span class="fragment highlight-red" data-fragment-index=4>output.collect(element.replace(element.getValue(), newTimestamp));</span>
+	}
 </code></pre>
 
 ----
@@ -448,26 +469,26 @@ public class TimestampsAndPeriodicWatermarksOperator&lt;T&gt;
 ### The Code (continued)
 
 <pre><code style="max-height: 550px; font-size: 0.7em; line-height: 1.2em" class="java" data-trim data-noescape>
-  @Override
+  <span class="fragment semi-fade-out" data-fragment-index=2>@Override
   public void onProcessingTime(long timestamp) throws Exception {
     // register next timer
     Watermark newWatermark = userFunction.getCurrentWatermark();
     if (newWatermark != null && newWatermark.getTimestamp() &gt; currentWatermark) {
       currentWatermark = newWatermark.getTimestamp();
-      // emit watermark
-      output.emitWatermark(newWatermark);
-    }
+      // emit watermark</span>
+      <span class="fragment highlight-red" data-fragment-index=1>output.emitWatermark(newWatermark);</span>
+    <span class="fragment semi-fade-out" data-fragment-index=2>}
 
     long now = getProcessingTimeService().getCurrentProcessingTime();
     getProcessingTimeService().registerTimer(now + watermarkInterval, this);
-  }
+  }</span>
 
-  <span class="fragment" data-fragment-index=1>/**
+  /**
    * Override the base implementation to completely ignore watermarks propagated from
    * upstream (we rely only on the {@link AssignerWithPunctuatedWatermarks} to emit
    * watermarks from here).
    */
-  @Override
+  <span class="fragment semi-fade-out" data-fragment-index=2>@Override
   public void processWatermark(Watermark mark) throws Exception {
     // if we receive a Long.MAX_VALUE watermark we forward it since it is used
     // to signal the end of input and to not block watermark progress downstream
@@ -515,7 +536,7 @@ public &lt;R&gt; SingleOutputStreamOperator&lt;R&gt; map(MapFunction&lt;T, R&gt;
 
 - has a single source which produces `FileReadRequest` messages, can send anywhere from 150 to 0.1 msgs/minute
 - a process function which reads the file and produces roughly ~100k messages per file, these new messages contain our event-time <!-- .element: class="fragment" data-fragment-index="1" -->
-- downstream logic that re-keys and aggregates and sums into 1 hour windows <!-- .element: class="fragment" data-fragment-index="2" -->
+- downstream logic that re-keys, aggregates, and sums into 1 hour windows <!-- .element: class="fragment" data-fragment-index="2" -->
 
 ----
 
@@ -570,8 +591,7 @@ Analysis shows the watermark isn't advancing
 
 - At low load, we get roughly 6 msgs/hour
 - In an hour, only ~25% of readers will have a message to process, the rest will be idle <!-- .element: class="fragment" data-fragment-index="1" -->
-- At this rate, it will take ~4 hours for all readers to get a message to process <!-- .element: class="fragment" data-fragment-index="2" -->
-- Since we assign watermarks after our reader, earlier watermarks are discarded <!-- .element: class="fragment" data-fragment-index="3" -->
+- Since we assign watermarks after our reader, earlier watermarks are discarded <!-- .element: class="fragment" data-fragment-index="2" -->
 
 ----
 ### Dealing with idle streams
@@ -674,7 +694,7 @@ class FileReaderDemo {
 
 ---
 
-## What Instructure needed to fix
+## Out with Lambda, In with Kappa
 
 ----
 
@@ -682,49 +702,17 @@ class FileReaderDemo {
 
 ----
 
-
 <img width="800" class="plain" src="./images/arc_demo.png" alt="Arc Example" style="vertical-align: middle"/>
 Note: Arc is a video platform tailored for education and corporate that gives control and insights into what people are watching
 Arc Insights shows data on how a video is being watched (or not). It is powered by a lambda architecture of spark batch and lambda/dynamo
 
 ----
 
-### Lambda architectures are difficult to:
+### Lambda Architecture is no good
 
 ----
 
-### Maintain
-
-- It is a struggle to get teams to maintain one system, let alone two
-
-- Batch and speed layer can be quite different, which requires broad knowledge for a team
-
-Note: We aren't big enough to have separate teams do all data transformations, so it is team's responsibility with consulting
-Most of our teams consistent of people build REST APIs and often not in JVM, so one new piece of technology can be a big ask
-
-----
-
-### Coordinate
-
-- For certain problems, coordinating between the two systems can be difficult and error prone
-
-----
-
-### Debug
-
-- When something goes wrong, knowing where the data came from (or didn't come from) is a challenge
-- An outage in either system can really confuse users
-
-----
-
-### Justify
-
-- With all the above challenges and with new stream processors, we found it hard to justify
-continued effort into this solution
-
-----
-
-### Are Kappa Architecture a Silver Bullet?
+### Kappa Architecture solves everything right?
 
 #### A step in the right direction, but a lot of ways to go about it
 
@@ -734,7 +722,7 @@ continued effort into this solution
 
 - Still a very unsolved problem
 - Many message transport layers don't support infinite retention at all (Kinesis) or it can be expensive (Kafka)
-- Even with more advanced solutions (pulsar or pravega tiered storage), scaling reads is non-trivial
+- Even with more advanced solutions (Pulsar or Pravega tiered storage), scaling reads is non-trivial
 
 ----
 
@@ -747,7 +735,7 @@ continued effort into this solution
 
 ### Our Approach To Kappa
 
-- We weren't ready to move to a new streaming transport and no trim Kafka seemed scary
+- We weren't ready to move to a new streaming transport and Kafka without trim seemed scary
 - We also wanted to avoid external automation or state if possible
 - Can we do this all inside Flink?
 
@@ -771,7 +759,7 @@ continued effort into this solution
 ### Not the only challenge
 
 - The `FlinkKinesisConsumer` is complex and not obviously re-usable as it is built on a `ParallelSourceFunction`
-- In order to scale reads during back-fill, we need read multiple files at once and then re-order the results <!-- .element: class="fragment" data-fragment-index="1" -->
+- In order to scale reads during back-fill, we need to read multiple files at once and then re-order the results <!-- .element: class="fragment" data-fragment-index="1" -->
 - We still can't do bi-directional communication, which makes synchronization a challenge <!-- .element: class="fragment" data-fragment-index="2" -->
 - We still have to worry about properly handling idle streams and watermarks to make downstream code work as expected <!-- .element: class="fragment" data-fragment-index="3" -->
 
@@ -798,15 +786,15 @@ continued effort into this solution
 ### Removing Unneeded Stuff
 
 - Once we are done back-filling, we want to eventually scale down batch reading portions
-- We can do this either by just scaling down the `S3FileReaders` or condtionally building a different graph
+- We can do this either by just scaling down the `S3FileReaders` or conditionally building a different graph
 
 ----
 
 ### Our results so far
 
 - Much less business logic to maintain, first use case reduced from ~500 loc to ~100 loc
-- Performance has been good in back-fill
-- Figuring out glue partitioning is a bit of a challenge to not have tiny partitions
+- Performance has been good in back-fill, but not strictly ordered
+- Figuring out glue partitioning to avoid small partitions is a a challenge
 - Still some bugs to iron out
 
 ----
@@ -815,7 +803,7 @@ continued effort into this solution
 
 FLIP-27 - Refactor Source Interface
 
-Aims to seperate out sources into two components `SplitEnumerator` and `SplitReader`, which should
+Aims to separate out sources into two components `SplitEnumerator` and `SplitReader`, which should
 allow for more flexible sources
 
 It also formalizes `Unbounded` and `Bounded` streams, which should make unified batch and streaming easier
